@@ -9,13 +9,18 @@ Fs = 10.24*10^6; % Sampling Frequency Hz
 FFTSize = 1024;  % FFT Size
 Ts = 1/Fs;       % Sampling Period Seconds
 T = 1/FFTSize;   % Symbol Time
-OFDMSymbolCount=1000;% Number of OFDM Symbols per Subframe
+OFDMSymbolCount=8;% Number of OFDM Symbols per Subframe
 BitsPerSymbol= 2; % Number of bits per Symbol. 2 for QPSK
 DataCarrierCount=900; % Number of Data carriers per OFDM symbol
 TotalInputBitCount=BitsPerSymbol*DataCarrierCount* OFDMSymbolCount;%Total Number of Bits required to be generated
 TotalSymbolCount  = TotalInputBitCount/BitsPerSymbol; % Total Number of Symbols
 CPLen = 256;     % Length of Cyclic Prefix
-  
+PilotSymbol = 5;  % Value of the pilot symbol. 
+OFDMWithPilot = [-1]; %OFDM symbols that carry Pilot symbols. Use -1 if no Training symbols are use.
+PDPdb = [0,-3,-5,-6,-10];
+PDP   = 10.^(PDPdb/10);
+PDPNormalised = PDP/sum(PDP);
+
 %% Generating Input Bits.
 % rand function is used to generate TotalInputBitCount number of Inputs
 % with values ranging from 0 to 1. Then it is rounded off to the nearest
@@ -56,12 +61,12 @@ Subframe = []; % Array to store the Subframe
 
 for SymbolCount = 1:OFDMSymbolCount  
     
-    if( SymbolCount == 1 || SymbolCount == 5) % OFDM Symbols 0 and 4 contains Pilot symbols.
+    if( sum(SymbolCount == OFDMWithPilot+1)) % OFDM Symbols 0 and 4 contains Pilot symbols.
      % The corresponding symbols are passed to the function which packs the
      % symbols into the correct bins and adds pilot symbols then  returns
      % the OFDM modulated time domain signal among other things.
      [TimeDomainValues,DataCarriersLocation,PilotLocation] = OFDMModulationWithPilot(FFTCoeff ...
-                        (:,SymbolCount),FFTSize,DataCarrierCount);
+                        (:,SymbolCount),FFTSize,DataCarrierCount,PilotSymbol);
   
     else   
       % This function is similar to the previous one. Only difference is
@@ -99,14 +104,16 @@ ylabel(' Amplitude ');
 % RecievedSI        -> Recieved Inphase symbols
 % RecievedSQ        -> Recieved Quadrature symbols
 
-SNRdb = 0:2:12; % SNR range.
+SNRdb = 0:1:12; % SNR range.
 SNRLinear  = 10.^(SNRdb/10);% Eb/No
 RecievedFFTCoeff = zeros(1,DataCarrierCount*SymbolCount);% Array to store the recieved symbols
 plotIdx = 2; % Subplot number 
 Index   = 1;
 for k=-2:2; % Synchronisation error. 
-    %H = exp(1i*2*pi*[1:FFTSize]*k/FFTSize);
-    %HInv = 1./H;
+    if( OFDMWithPilot(1) == -1)
+        H = exp(1i*2*pi*[1:FFTSize]*k/FFTSize);
+        HInv = 1./H;
+    end
     for snr = SNRdb;
         RecievedSubframe = awgn(Subframe,snr); % AWGN is added to the signal.
          for l = 0:1:OFDMSymbolCount-1
@@ -116,14 +123,14 @@ for k=-2:2; % Synchronisation error.
             OFDMSymbol =  RecievedSubframe(l*(OFDMSymLen)+1: (l+1)*OFDMSymLen);% Extracting OFDM symbols from Subframe           
             if(k <= 0)  
                 OSWCP      = OFDMSymbol(CPLen+1+k:OFDMSymLen+k); % Synchronisation Error. K=0 => No error
-            else 
+            else % k > 0
                 % For certain cases, Some points from the next OFDM symbol
                 % is appended to the end of the current FFT window to mimic
                 % ISI. And in the case of last OFDM symbol, Zeros are
                 % added.
                 
                 if(l ~= OFDMSymbolCount-1)
-                     OSWCP      =[OFDMSymbol(CPLen+1+k:OFDMSymLen) RecievedSubframe((l+1)*(OFDMSymLen)+1: (l+1)*(OFDMSymLen+1)+k)];
+                     OSWCP      =[OFDMSymbol(CPLen+1+k:OFDMSymLen) RecievedSubframe((l+1)*(OFDMSymLen)+1: (l+1)*(OFDMSymLen)+k)];
                 else
                      OSWCP      =[OFDMSymbol(CPLen+1+k:OFDMSymLen) zeros(1,k)];
                 end
@@ -131,22 +138,23 @@ for k=-2:2; % Synchronisation error.
             
            
             
-            QPSKSymbols =( fft(OSWCP,FFTSize)/sqrt(FFTSize));% Find the Frequency domain values
+            QPSKSymbols =( fft(OSWCP,FFTSize)/sqrt(FFTSize));% Finding the Frequency domain values
             
-             if(l == 0 || l == 4)
-                    H = zeros(1,FFTSize);
-                    H(PilotLocation) = QPSKSymbols(PilotLocation)/5;
+            % Channel estimation using Pilot Symbols
+             if(sum(l == OFDMWithPilot) && OFDMWithPilot(1) ~= -1)
+                   H = zeros(1,FFTSize);
+                  H(PilotLocation) = (QPSKSymbols(PilotLocation)/PilotSymbol);
                     
-                    H(find(H==0)) = interp1(PilotLocation,H(PilotLocation),find(H==0));
-                    HInv = 1./H;
+                   H(find(H==0)) = interp1(PilotLocation,H(PilotLocation),find(H==0));
+                   HInv = 1./H;
                     
-                    %HInv = smooth(HInv,64);
-                    %HInv = reshape(HInv,[1,FFTSize]);
-             end
+%                     HInv = smooth(HInv,128);
+%                     HInv = reshape(HInv,[1,FFTSize]);
+            end
             
-            QPSKSymbols = HInv.*QPSKSymbols;
+            QPSKSymbols = HInv.*QPSKSymbols ./ (abs(HInv));
             % Pilots and Virtual carriers are discarded.
-            if(l == 0 || l == 4)
+            if(sum(l == OFDMWithPilot)&& OFDMWithPilot(1) ~= -1)
                 UsefulQPSKSymbols = QPSKSymbols(DataCarriersLocation);
             else
                 UsefulQPSKSymbols = QPSKSymbols(DataCarriersLocationNP);
@@ -170,13 +178,14 @@ for k=-2:2; % Synchronisation error.
         RecievedSQ = sign(imag(RecievedFFTCoeff)); % Extracting the Quadrature components
        
         ErrorCount = sum( (RecievedSI ~= SI) + (RecievedSQ ~= SQ)); % Total number of errors
-        BER(Index) = + ErrorCount/TotalInputBitCount; % Bit error rate
+        BER(Index) =  ErrorCount/TotalInputBitCount; % Bit error rate
         Index = Index+1;
     end
     Index = 1;
         subplot(3,2,plotIdx)
     BER = BER ;
     tber = 0.5*erfc(sqrt(SNRLinear)); % Theorectial Bit error rate of QPSK
+     
     semilogy(SNRdb,BER,'-bo',SNRdb,tber,'-mh'); % Plotting the theorectical and simulated BER
     xlabel(' SNR(db)');
     ylabel(' BER ');

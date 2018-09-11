@@ -20,6 +20,11 @@ SyncError = [0] ;% Zero for perfect Sync
 PilotSymbolLength = 115;
 PilotSymbol =2*( round(rand(1,PilotSymbolLength)+ 1i*rand(1,PilotSymbolLength)))-1-1i;  % Value of the pilot symbol. 
 PilotSymbol = 2*PilotSymbol;
+%PilotLocation = [1,10,19,28,37,46,55,64,73,82,91,100,109,118,127,136,145,154,163,172,181,190,199,208,217,226,235,244,253,...
+%                                262,271,280,289,298,307,316,325,334,343,352,361,370,379,388,397,406,415,424,433,442,451,460,469,478,...
+%                                487,496,505,512,520,529,538,547,556,565,574,583,592,601,610,619,628,637,646,655,664,673,682,691,700,...
+%                                709,718,727,736,745,754,763,772,781,790,799,808,817,826,835,844,853,862,871,880,889,898,907,916,925,...
+%                                934,943,952,961,970,979,988,997,1006,1015,1024];
                            
 OFDMWithPilot = [0,4]; %OFDM symbols that carry Pilot symbols. Use -1 if no Training symbols are use.
 
@@ -27,7 +32,7 @@ OFDMWithPilot = [0,4]; %OFDM symbols that carry Pilot symbols. Use -1 if no Trai
 PDPdb = [0,-3,-5,-6,-10];  % PDP values for Rayleigh.
 PDP   = 10.^(PDPdb/10); 
 PDPNormalised = PDP/sum(PDP);
-MultipathIndices =-1;% [0,7,13,26,47]; % Delay Index. Use 1 if there are no multipaths 
+MultipathIndices = [0,7,13,26,47]; % Delay Index. Use 1 if there are no multipaths 
 
 ChannelFunction = zeros(1,48);
 if(MultipathIndices(1) ~= -1)
@@ -132,7 +137,7 @@ for k=SyncError; % Synchronisation error.
         H = exp(1i*2*pi*[1:FFTSize]*k/FFTSize);
         HInv = 1./H;
     end
-    for snr = 100000;
+    for snr = SNRdb;
         RecievedSubframe = awgn(ChannelResponse,snr); % AWGN is added to the signal.
          for l = 0:1:OFDMSymbolCount-1
             % Here OFDM symbols are extracted from the subframe one by one
@@ -157,6 +162,7 @@ for k=SyncError; % Synchronisation error.
            
             
             QPSKSymbols =( fft(OSWCP,FFTSize)/sqrt(FFTSize));% Finding the Frequency domain values
+            
             % Channel estimation using Pilot Symbols
              if(sum(l == OFDMWithPilot) && OFDMWithPilot(1) ~= -1)
 %                     H = zeros(1,FFTSize);
@@ -167,17 +173,16 @@ for k=SyncError; % Synchronisation error.
                   H = zeros(FFTSize,1);
                   Y = zeros(1,length(PilotLocation));
                   X = ones(1,length(PilotLocation)).*PilotSymbol;
-                  
                   Y =diag( (QPSKSymbols(PilotLocation)));
                     
                    H(PilotLocation)= Y*X';
                     H(find(H==0)) = interp1(PilotLocation,H(PilotLocation),find(H==0));
-                    HInv =H';
+                    HInv =1./H;
                     % HInv = smooth(HInv,128);
                     % HInv = reshape(HInv,[1,FFTSize]);
             end
             
-            QPSKSymbols =((HInv).* QPSKSymbols)./(abs(HInv).^2 ); % Equalisation
+            QPSKSymbols =(transpose(HInv).* QPSKSymbols)./(abs(HInv).^2 ); % Equalisation
             
             % Pilots and Virtual carriers are discarded.
             if(sum(l == OFDMWithPilot)&& OFDMWithPilot(1) ~= -1)

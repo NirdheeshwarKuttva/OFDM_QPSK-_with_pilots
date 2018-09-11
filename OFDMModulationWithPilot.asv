@@ -1,4 +1,4 @@
-function [ TimeDomainValues,LocationOfDataCarriers  ,PilotLocations] = OFDMModulationWithPilot( FFTCoeff, FFTSize, DataCarriersCount , PilotSymbol)
+function [ TimeDomainValues,LocationOfDataCarriers,PilotLocations ] = OFDMModulationWithPilot( FFTCoeff, FFTSize, DataCarriersCount , PilotSymbol )
 %UNTITLED Summary of this function goes here
 %   Detailed explanation goes here
 j = 2;
@@ -22,7 +22,6 @@ j=1;
 for(idx=1:FFTSize/2)
     if(rem(idx-1,9) == 0)
        InputSequenceN(idx) = PilotSymbol(Pcount);
-       Pcount = Pcount + 1;
     else
     InputSequenceN(idx) = FFTCoeff(j+(DataCarriersCount/2));
     j=j+1;
@@ -33,9 +32,9 @@ for(idx=1:FFTSize/2)
 end
 %% Frequency Domain values of QFDM Signal %%
 FFTCoeffLoaded = [ InputSequenceP flip(InputSequenceN)];
-FFTCoeffLoaded(FFTSize/2) = PilotSymbol(Pcount);
-LocationOfDataCarriers = find((abs(FFTCoeffLoaded) ~= 2*sqrt(2)) & (FFTCoeffLoaded ~= 0));
-PilotLocations = find(abs(FFTCoeffLoaded) == 2*sqrt(2) );
+FFTCoeffLoaded(FFTSize/2) = PilotSymbol;
+LocationOfDataCarriers = find((FFTCoeffLoaded ~= PilotSymbol) & (FFTCoeffLoaded ~= 0));
+PilotLocations = find(FFTCoeffLoaded == PilotSymbol);
 VirtualCarriers = find(FFTCoeffLoaded == 0);
 %% Time domain Signal of QFDM Signal      %%
 TimeDomainValues = ifft(FFTCoeffLoaded)*sqrt(FFTSize);

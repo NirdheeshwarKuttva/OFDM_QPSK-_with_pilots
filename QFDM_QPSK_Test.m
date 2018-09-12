@@ -18,16 +18,15 @@ CPLen = 256;     % Length of Cyclic Prefix
 
 SyncError = [0] ;% Zero for perfect Sync
 PilotSymbolLength = 115;
-PilotSymbol =2*( round(rand(1,PilotSymbolLength)+ 1i*rand(1,PilotSymbolLength)))-1-1i;  % Value of the pilot symbol. 
-PilotSymbol = 2*PilotSymbol;
-                           
+PilotSymbols =2*( round(rand(1,PilotSymbolLength)+ 1i*rand(1,PilotSymbolLength)))-1-1i;  % Value of the pilot symbol. 
+PilotSymbols = 2*PilotSymbols;                          
 OFDMWithPilot = [0,4]; %OFDM symbols that carry Pilot symbols. Use -1 if no Training symbols are use.
 
 
 PDPdb = [0,-3,-5,-6,-10];  % PDP values for Rayleigh.
 PDP   = 10.^(PDPdb/10); 
 PDPNormalised = PDP/sum(PDP);
-MultipathIndices =-1;% [0,7,13,26,47]; % Delay Index. Use 1 if there are no multipaths 
+MultipathIndices = [0,7,13,26,47]; % Delay Index. Use 1 if there are no multipaths 
 
 ChannelFunction = zeros(1,48);
 if(MultipathIndices(1) ~= -1)
@@ -80,7 +79,7 @@ for SymbolCount = 1:OFDMSymbolCount
      % symbols into the correct bins and adds pilot symbols then  returns
      % the OFDM modulated time domain signal among other things.
      [TimeDomainValues,DataCarriersLocation,PilotLocation] = OFDMModulationWithPilot(FFTCoeff ...
-                        (:,SymbolCount),FFTSize,DataCarrierCount,PilotSymbol);
+                        (:,SymbolCount),FFTSize,DataCarrierCount,PilotSymbols);
   
     else   
       % This function is similar to the previous one. Only difference is
@@ -101,6 +100,7 @@ for SymbolCount = 1:OFDMSymbolCount
     Subframe = [Subframe OFDMSymbol];% The Time domain OFDMSymbols are concatenated to form the Subframe array
 end
 
+PilotSymbols = [PilotSymbols(1:(PilotSymbolLength-1)/2)  flip(PilotSymbols(PilotSymbolLength/2:PilotSymbolLength))];
 OFDMSymLen = FFTSize+CPLen; % OFDM Symbol length
 SubframeLen = (OFDMSymLen)*OFDMSymbolCount;% Subframe length
 subplot(3,2,1)
@@ -130,9 +130,9 @@ Index   = 1;
 for k=SyncError; % Synchronisation error. 
     if( OFDMWithPilot(1) == -1)
         H = exp(1i*2*pi*[1:FFTSize]*k/FFTSize);
-        HInv = 1./H;
+        HInv = H';
     end
-    for snr = 100000;
+    for snr = SNRdb;
         RecievedSubframe = awgn(ChannelResponse,snr); % AWGN is added to the signal.
          for l = 0:1:OFDMSymbolCount-1
             % Here OFDM symbols are extracted from the subframe one by one
@@ -157,6 +157,7 @@ for k=SyncError; % Synchronisation error.
            
             
             QPSKSymbols =( fft(OSWCP,FFTSize)/sqrt(FFTSize));% Finding the Frequency domain values
+          
             % Channel estimation using Pilot Symbols
              if(sum(l == OFDMWithPilot) && OFDMWithPilot(1) ~= -1)
 %                     H = zeros(1,FFTSize);
@@ -164,15 +165,17 @@ for k=SyncError; % Synchronisation error.
 %                     
 %                    H(find(H==0)) = interp1(PilotLocation,H(PilotLocation),find(H==0));
 %                         HInv = 1./H;
+                   
                   H = zeros(FFTSize,1);
                   Y = zeros(1,length(PilotLocation));
-                  X = ones(1,length(PilotLocation)).*PilotSymbol;
+                  X = ones(1,length(PilotLocation)).*PilotSymbols;
                   
                   Y =diag( (QPSKSymbols(PilotLocation)));
                     
                    H(PilotLocation)= Y*X';
-                    H(find(H==0)) = interp1(PilotLocation,H(PilotLocation),find(H==0));
+                    H(find(H==0)) = interp1(PilotLocation,H(PilotLocation),find(H==0),'spline');
                     HInv =H';
+                    
                     % HInv = smooth(HInv,128);
                     % HInv = reshape(HInv,[1,FFTSize]);
             end
@@ -207,9 +210,12 @@ for k=SyncError; % Synchronisation error.
     Index = 1;
         subplot(3,2,plotIdx)
     BER = BER ;
-    tber = 0.5*erfc(sqrt(SNRLinear)); % Theorectial Bit error rate of QPSK
+    %tber = 0.5*erfc(sqrt(SNRLinear)); % Theorectial Bit error rate of QPSK
+    tber = 0.5.*(1-sqrt(SNRLinear./(SNRLinear+1)));
      
-    semilogy(SNRdb,BER,'-bo',SNRdb,tber,'-mh'); % Plotting the theorectical and simulated BER
+    semilogy(SNRdb,BER,'b--o');
+    hold on; 
+   semilogy(SNRdb,tber,'r'); % Plotting the theorectical and simulated BER
     xlabel(' SNR(db)');
     ylabel(' BER ');
     t = ['With Sync Error k = ',num2str(k)];
